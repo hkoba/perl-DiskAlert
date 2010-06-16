@@ -1,0 +1,34 @@
+#!/bin/zsh
+
+db=/var/log/httpd/dflog.db
+opts=()
+[[ -w $db ]] || opts+=(--ro)
+
+#----------------------------------------
+fs=()
+
+# fs 配列には
+# mountpoint opt=value ...
+# を詰める
+
+fs+=(/
+    min=$[1024*1024]
+)
+# root は 1GB を切ったら警告を出す
+
+fs+=(/var
+    min=$[1024*1024]
+)
+fs+=(/var/www
+    min=$[1024*1024]
+)
+fs+=(/var/log/httpd
+    min=$[1024*1024]
+)
+fs+=(/home
+    min=$[1024*1024]
+)
+
+#----------------------------------------
+
+$0:h/DiskAlert.pm --db=$db $opts watch $fs
