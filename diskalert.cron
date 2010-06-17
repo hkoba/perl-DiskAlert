@@ -1,34 +1,40 @@
 #!/bin/zsh
 
+set -e
+
 db=/var/log/httpd/dflog.db
 opts=()
 [[ -w $db ]] || opts+=(--ro)
 
-#----------------------------------------
-fs=()
+realscript=$(readlink -f $0)
 
+#----------------------------------------
 # fs 配列には
 # mountpoint opt=value ...
 # を詰める
 
-fs+=(/
-    min=$[1024*1024]
-)
-# root は 1GB を切ったら警告を出す
+fs=(
+    /var/www
+      min=1G decr1=100M
 
-fs+=(/var
-    min=$[1024*1024]
+    /home
+      min=1G decr1=100M
+
+    /var
+      min=1G decr1=10M
+
+    /var/log/httpd
+      min=1G decr1=10M
+
+    /
+      min=1G
 )
-fs+=(/var/www
-    min=$[1024*1024]
-)
-fs+=(/var/log/httpd
-    min=$[1024*1024]
-)
-fs+=(/home
-    min=$[1024*1024]
-)
+
+# min は, 残り容量の最小値.
+# decr1 は, 前回(=前日)からの減少量のしきい値
 
 #----------------------------------------
 
-$0:h/DiskAlert.pm --db=$db $opts watch $fs
+# XXX: $argv[1] =~ /^\w/ なら別コマンド.
+
+$realscript:h/DiskAlert.pm --db=$db $opts $argv watch $fs

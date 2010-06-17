@@ -13,9 +13,15 @@ use warnings FATAL => qw(all);
   }
   sub configure {
     my MY $self = shift;
+    my @task;
     while (my ($name, $value) = splice @_, 0, 2) {
-      $self->{"cf_$name"} = $value;
+      if (my $task = $self->can("configure_$name")) {
+	push @task, [$task, $value];
+      } else {
+	$self->{"cf_$name"} = $value;
+      }
     }
+    $_->[0]->($self, $_->[1]) for @task;
     $self;
   }
 }
@@ -24,6 +30,20 @@ use warnings FATAL => qw(all);
   package DiskAlert::Watch; sub MY () {__PACKAGE__}
   use base qw(DiskAlert::Object);
   use fields qw(cf_mnt cf_min cf_decr1);
+
+  our %UNIT = (G => 1024*1024, M => 1024, K => 1);
+  sub unit {
+    my ($arg) = @_;
+    $arg =~ s{^([\d\.]+)([GMK])$}{$1 * $UNIT{$2}}e;
+    $arg;
+  }
+  # XXX: 生成したい
+  sub configure_min {
+    my MY $self = shift; $self->{cf_min} = unit(shift);
+  }
+  sub configure_decr1 {
+    my MY $self = shift; $self->{cf_decr1} = unit(shift);
+  }
 }
 {
   sub Log () {'DiskAlert::Log'}
@@ -120,7 +140,6 @@ sub cmd_load {
 			, $total, $used, $avail);
     }, $self->{watchdict};
   };
-  
 }
 
 sub cmd_watch {
@@ -128,17 +147,23 @@ sub cmd_watch {
   $self->cmd_load(@_);
   with_dbh {$self} $self->DBH, sub {
     foreach my Watch $watch (@{$self->{watchlist}}) {
-      if ($watch->{cf_min}
-	  and ((my Log $prev, my Log $now)
-	       = $self->log_list($watch->{cf_mnt}, 2)) == 2) {
+      my @last2 = (my Log $prev, my Log $now)
+	= $self->log_list($watch->{cf_mnt}, 2);
+      if ($watch->{cf_min} and @last2 == 2
+	  and $now->{cf_avail} < $watch->{cf_min}) {
 	# use Data::Dumper; print Dumper($now), "\n";
-	if ($now->{cf_avail} < $watch->{cf_min}) {
-	  $self->alertfmt("%s capacity reduced to %d (min=%d) diff=%d"
-			  , $watch->{cf_mnt}, $now->{cf_avail}
-			  , $watch->{cf_min}
-			  , $prev->{cf_avail} - $now->{cf_avail}
-			 );
-	}
+	$self->alertfmt("%s capacity reduced to %dK (min=%dK) diff=%dK"
+			, $watch->{cf_mnt}, $now->{cf_avail}
+			, $watch->{cf_min}
+			, $prev->{cf_avail} - $now->{cf_avail}
+		       );
+      }
+      if ($watch->{cf_decr1} and @last2 == 2
+	  and (my $diff = $prev->{cf_avail} - $now->{cf_avail})
+	  >= $watch->{cf_decr1}) {
+	$self->alertfmt("%s reduced %dK at one period. now avail=%dK"
+			, $watch->{cf_mnt}, $diff, $now->{cf_avail}
+		       );
       }
     }
   };
