@@ -186,12 +186,10 @@ sub cmd_list_growth {
     $self->log_list_as
       (hash => $mnt, $self->{cf_limit}, sub {
 	 (my Log $log) = @_;
-	 if ($prev) {
-	   print join("\t", $log->{cf_at}, $log->{cf_datetime}
-		      , $log->{cf_used}, $log->{cf_avail}
-		      , $log->{cf_used} - $prev->{cf_used}
-		     ), "\n";
-	 }
+	 print join("\t", $log->{cf_at}, $log->{cf_datetime}
+		    , $log->{cf_used}, $log->{cf_avail}
+		    , $prev ? $log->{cf_used} - $prev->{cf_used} : 0
+		   ), "\n";
 	 $prev = $log;
        });
   };
