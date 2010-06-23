@@ -5,8 +5,15 @@ set -e
 db=/var/log/httpd/dflog.db
 opts=()
 [[ -w $db ]] || opts+=(--ro)
+while ((ARGC)) && [[ $1 == --* ]]; do
+    opts+=($1); shift
+done
 
 realscript=$(readlink -f $0)
+driver=$realscript:h/DiskAlert.pm
+function run_driver {
+    $driver --db=$db $opts $argv
+}
 
 #----------------------------------------
 # fs 配列には
@@ -34,7 +41,23 @@ fs=(
 # decr1 は, 前回(=前日)からの減少量のしきい値
 
 #----------------------------------------
-
 # XXX: $argv[1] =~ /^\w/ なら別コマンド.
 
-$realscript:h/DiskAlert.pm --db=$db $opts $argv watch $fs
+function cmd_ls {
+    if ((ARGC)); then
+	run_driver list_growth $argv
+    else
+	run_driver list_disks
+    fi
+}
+
+if ((ARGC)); then
+    cmd=$1; shift
+    if (($+functions[cmd_$cmd])); then
+	cmd_$cmd $argv
+    else
+	run_driver $cmd $argv
+    fi
+else
+    run_driver watch $fs
+fi

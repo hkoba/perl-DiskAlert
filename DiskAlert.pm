@@ -49,12 +49,12 @@ use warnings FATAL => qw(all);
   sub Log () {'DiskAlert::Log'}
   package DiskAlert::Log; sub MY () {__PACKAGE__}
   use base qw(DiskAlert::Object);
-  use fields qw(cf_mnt cf_at cf_total cf_used cf_avail);
+  use fields qw(cf_mnt cf_rowid cf_at cf_datetime cf_total cf_used cf_avail);
 }
 
 use base qw(DiskAlert::Object);
 use fields qw(DBH mntids watchlist watchdict
-	      cf_db cf_verbose cf_time cf_ro
+	      cf_db cf_verbose cf_time cf_ro cf_limit
 	      in_transaction);
 
 use DBI;
@@ -90,7 +90,7 @@ sub cmd_setup {
 }
 
 sub mntid {
-  (my MY $self, my ($mnt, $dev)) = @_;
+  my MY $self = shift;
   $self->{mntids} ||= do {
     my $res = $self->DBH->selectcol_arrayref(<<END, {Columns => [1, 2]});
 select mnt, mntid from disk
@@ -98,6 +98,8 @@ END
     my %hash = @$res;
     \%hash;
   };
+  return $self->{mntids} unless @_;
+  my ($mnt, $dev) = @_;
   # XXX:
   $self->{mntids}{$mnt} ||= do {
     $self->DBH->do(<<END, undef, $mnt, $dev);
@@ -148,7 +150,7 @@ sub cmd_watch {
   with_dbh {$self} $self->DBH, sub {
     foreach my Watch $watch (@{$self->{watchlist}}) {
       my @last2 = (my Log $prev, my Log $now)
-	= $self->log_list($watch->{cf_mnt}, 2);
+	= $self->log_list_as(hash => $watch->{cf_mnt}, 2);
       if ($watch->{cf_min} and @last2 == 2
 	  and $now->{cf_avail} < $watch->{cf_min}) {
 	# use Data::Dumper; print Dumper($now), "\n";
@@ -169,26 +171,64 @@ sub cmd_watch {
   };
 }
 
+sub cmd_list_disks {
+  my MY $self = shift;
+  my $hash = $self->mntid;
+  print join("\n", sort keys %$hash), "\n";
+}
+
+sub cmd_list_growth {
+  (my MY $self, my $mnt) = @_;
+  print join("\t", qw(at datetime used avail growth)), "\n";
+
+  with_dbh {$self} $self->DBH, sub {
+    my Log $prev;
+    $self->log_list_as
+      (hash => $mnt, $self->{cf_limit}, sub {
+	 (my Log $log) = @_;
+	 if ($prev) {
+	   print join("\t", $log->{cf_at}, $log->{cf_datetime}
+		      , $log->{cf_used}, $log->{cf_avail}
+		      , $log->{cf_used} - $prev->{cf_used}
+		     ), "\n";
+	 }
+	 $prev = $log;
+       });
+  };
+}
+
 sub alertfmt {
   (my MY $self, my $fmt) = splice @_, 0, 2;
   printf $fmt, @_; print "\n";
 }
 
-sub log_list {
-  (my MY $self, my ($mnt, $limit)) = @_;
+sub log_list_as {
+  (my MY $self, my ($mode, $mnt, $limit, $sub)) = @_;
   my $dbh = $self->DBH;
-  my $sth = $dbh->prepare(sprintf(<<END, $limit));
-select at, total, used, avail from log
+  my $sth = $dbh->prepare(<<END . ($limit ? sprintf('limit %d', $limit) : ''));
+select rowid, at, datetime(at, 'unixepoch', 'localtime') as datetime
+, total, used, avail from log
 where mntid = (select mntid from disk where mnt = ?)
 order by rowid
-limit %d
 END
 
   $sth->execute($mnt) or return;
 
   my @res;
-  while (my $row = $sth->fetchrow_hashref) {
-    push @res, $self->Log->new(mnt => $mnt, %$row);
+  if ($mode eq 'hash') {
+    while (my $row = $sth->fetchrow_hashref) {
+      my $log = $self->Log->new(mnt => $mnt, %$row);
+      if ($sub) {
+	$sub->($log);
+      } else {
+	push @res, $log;
+      }
+    }
+  } elsif ($mode eq 'array') {
+    push @res, [@{$sth->{NAME}}];
+    while (my @row = $sth->fetchrow_array) {
+      push @res, \@row;
+    }
   }
   @res;
 }
@@ -269,9 +309,14 @@ unless (caller) {
     die "$0 [--db=file] cmd...\n";
   }
   my $cmd = shift @ARGV;
-  my $sub = $self->can("cmd_$cmd")
-    or die "$0: No such command $cmd\n";
-  $sub->($self, @ARGV);
+  if (my $sub = $self->can("cmd_$cmd")) {
+    $sub->($self, @ARGV);
+  } elsif ($sub = $self->can($cmd)) {
+    my @res = $sub->($self, @ARGV);
+    print join("\n", map {ref $_ ? join("\t", @$_) : $_} @res), "\n" if @res;
+  } else {
+    die "$0: No such command $cmd\n";
+  }
 }
 
 1;
