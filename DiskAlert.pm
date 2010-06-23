@@ -178,13 +178,13 @@ sub cmd_list_disks {
 }
 
 sub cmd_list_growth {
-  (my MY $self, my $mnt) = @_;
+  (my MY $self, my ($mnt, $limit)) = @_;
   print join("\t", qw(at datetime used avail growth)), "\n";
 
   with_dbh {$self} $self->DBH, sub {
     my Log $prev;
     $self->log_list_as
-      (hash => $mnt, $self->{cf_limit}, sub {
+      (hash => $mnt, $limit // $self->{cf_limit} // 100, sub {
 	 (my Log $log) = @_;
 	 print join("\t", $log->{cf_at}, $log->{cf_datetime}
 		    , $log->{cf_used}, $log->{cf_avail}
