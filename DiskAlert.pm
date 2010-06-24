@@ -163,8 +163,9 @@ sub cmd_watch {
       if ($watch->{cf_decr1} and @last2 == 2
 	  and (my $diff = $prev->{cf_avail} - $now->{cf_avail})
 	  >= $watch->{cf_decr1}) {
-	$self->alertfmt("%s reduced %dK at one period. now avail=%dK"
+	$self->alertfmt("%s reduced %dK at one period. now avail=%dK at %s"
 			, $watch->{cf_mnt}, $diff, $now->{cf_avail}
+			, $now->{cf_datetime}
 		       );
       }
     }
@@ -183,15 +184,14 @@ sub cmd_list_growth {
 
   with_dbh {$self} $self->DBH, sub {
     my Log $prev;
-    $self->log_list_as
-      (hash => $mnt, $limit // $self->{cf_limit} // 100, sub {
-	 (my Log $log) = @_;
-	 print join("\t", $log->{cf_at}, $log->{cf_datetime}
-		    , $log->{cf_used}, $log->{cf_avail}
-		    , $prev ? $log->{cf_used} - $prev->{cf_used} : 0
-		   ), "\n";
-	 $prev = $log;
-       });
+    foreach my Log $log ($self->log_list_as
+			 (hash => $mnt, $limit // $self->{cf_limit} // 100)) {
+      print join("\t", $log->{cf_at}, $log->{cf_datetime}
+		 , $log->{cf_used}, $log->{cf_avail}
+		 , $prev ? $log->{cf_used} - $prev->{cf_used} : 0
+		), "\n";
+      $prev = $log;
+    }
   };
 }
 
@@ -203,11 +203,12 @@ sub alertfmt {
 sub log_list_as {
   (my MY $self, my ($mode, $mnt, $limit, $sub)) = @_;
   my $dbh = $self->DBH;
+  # limit は先頭から N 個、なので、一旦逆順で検索し、最後に reverse する。
   my $sth = $dbh->prepare(<<END . ($limit ? sprintf('limit %d', $limit) : ''));
 select rowid, at, datetime(at, 'unixepoch', 'localtime') as datetime
 , total, used, avail from log
 where mntid = (select mntid from disk where mnt = ?)
-order by rowid
+order by rowid desc
 END
 
   $sth->execute($mnt) or return;
@@ -217,6 +218,7 @@ END
     while (my $row = $sth->fetchrow_hashref) {
       my $log = $self->Log->new(mnt => $mnt, %$row);
       if ($sub) {
+	# XXX: 逆順に呼ばれるので、嬉しくない。
 	$sub->($log);
       } else {
 	push @res, $log;
@@ -228,7 +230,7 @@ END
       push @res, \@row;
     }
   }
-  @res;
+  reverse @res;
 }
 
 sub log_insert {
