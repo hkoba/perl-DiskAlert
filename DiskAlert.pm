@@ -310,8 +310,10 @@ unless (caller) {
   }
   my $cmd = shift @ARGV;
   if (my $sub = $self->can("cmd_$cmd")) {
+    $self->configure($self->parse_opts(\@ARGV));
     $sub->($self, @ARGV);
   } elsif ($sub = $self->can($cmd)) {
+    $self->configure($self->parse_opts(\@ARGV));
     my @res = $sub->($self, @ARGV);
     print join("\n", map {ref $_ ? join("\t", @$_) : $_} @res), "\n" if @res;
   } else {
