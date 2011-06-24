@@ -51,6 +51,11 @@ function cmd_ls {
     fi
 }
 
+function cmd_plot {
+    local plot="plot \"<  $realscript ls $*\" using 2:4"
+    gnuplot $realscript:r.gnuplot =(print -r $plot) -
+}
+
 if ((ARGC)); then
     cmd=$1; shift
     if (($+functions[cmd_$cmd])); then
