@@ -51,9 +51,16 @@ function cmd_ls {
     fi
 }
 
+function gnuplot_with {
+    gnuplot $realscript:r.gnuplot =(print -lr $*) -
+}
+
 function cmd_plot {
-    local plot="plot \"<  $realscript ls $*\" using 2:4"
-    gnuplot $realscript:r.gnuplot =(print -r $plot) -
+    local current
+    current=($($realscript list_current $*))
+    gnuplot_with \
+	"set yrange [0:$current[2]]"\
+        "plot \"<  $realscript ls $*\" using 2:4"
 }
 
 if ((ARGC)); then

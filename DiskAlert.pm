@@ -55,6 +55,7 @@ use warnings FATAL => qw(all);
 use base qw(DiskAlert::Object);
 use fields qw(DBH mntids watchlist watchdict
 	      cf_db cf_verbose cf_time cf_ro cf_limit
+	      cf_header
 	      in_transaction);
 
 use DBI;
@@ -193,6 +194,18 @@ sub cmd_list_growth {
       $prev = $log;
     }
   };
+}
+
+sub cmd_list_current {
+  my MY $self = shift;
+  print join("\t", qw(Path Size Used Avail)), "\n"
+    if $self->{cf_header};
+  foreach my $mnt (@_) {
+    (my Log $log) = $self->log_list_as(hash => $mnt, 1)
+      or next;
+    print join("\t", $mnt, $log->{cf_total}, $log->{cf_used}, $log->{cf_avail})
+      , "\n";
+  }
 }
 
 sub alertfmt {
