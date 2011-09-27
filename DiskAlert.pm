@@ -56,6 +56,7 @@ use base qw(DiskAlert::Object);
 use fields qw(DBH mntids watchlist watchdict
 	      cf_db cf_verbose cf_time cf_ro cf_limit
 	      cf_header
+	      cf_diskfull_days
 	      in_transaction);
 
 use DBI;
@@ -152,7 +153,16 @@ sub cmd_watch {
     foreach my Watch $watch (@{$self->{watchlist}}) {
       my @last2 = (my Log $prev, my Log $now)
 	= $self->log_list_as(hash => $watch->{cf_mnt}, 2);
-      if ($watch->{cf_min} and @last2 == 2
+      next unless @last2 == 2;
+      my $diff = $prev->{cf_avail} - $now->{cf_avail};
+      my $diskfull_days = $now->{cf_avail} / $diff if $diff;
+      if (defined $diskfull_days and $diskfull_days > 0
+	  and $diskfull_days < ($self->{cf_diskfull_days} // 30)) {
+	$self->alertfmt("%s will fill-up in %d days (now avail=%dK)"
+			, $watch->{cf_mnt}, $diskfull_days, $now->{cf_avail});
+	next;
+      }
+      if ($watch->{cf_min}
 	  and $now->{cf_avail} < $watch->{cf_min}) {
 	# use Data::Dumper; print Dumper($now), "\n";
 	$self->alertfmt("%s capacity reduced to %dK (min=%dK) diff=%dK"
@@ -161,11 +171,12 @@ sub cmd_watch {
 			, $prev->{cf_avail} - $now->{cf_avail}
 		       );
       }
-      if ($watch->{cf_decr1} and @last2 == 2
-	  and (my $diff = $prev->{cf_avail} - $now->{cf_avail})
-	  >= $watch->{cf_decr1}) {
-	$self->alertfmt("%s reduced %dK at one period. now avail=%dK at %s"
-			, $watch->{cf_mnt}, $diff, $now->{cf_avail}
+      if ($watch->{cf_decr1}
+	  and $diff >= $watch->{cf_decr1}) {
+	$self->alertfmt("%s reduced %dK (may fill-up in %d days). "
+			. "Now avail=%dK at %s"
+			, $watch->{cf_mnt}, $diff, $diskfull_days
+			, $now->{cf_avail}
 			, $now->{cf_datetime}
 		       );
       }
@@ -181,15 +192,18 @@ sub cmd_list_disks {
 
 sub cmd_list_growth {
   (my MY $self, my ($mnt, $limit)) = @_;
-  print join("\t", qw(at datetime used avail growth)), "\n";
+  print join("\t", qw(at datetime used avail growth fillupdays)), "\n";
 
   with_dbh {$self} $self->DBH, sub {
     my Log $prev;
     foreach my Log $log ($self->log_list_as
 			 (hash => $mnt, $limit // $self->{cf_limit} // 100)) {
+      my $growth = $log->{cf_used} - $prev->{cf_used} if $prev;
+      my $days = $log->{cf_avail} / $growth if $prev && $growth;
       print join("\t", $log->{cf_at}, $log->{cf_datetime}
 		 , $log->{cf_used}, $log->{cf_avail}
-		 , $prev ? $log->{cf_used} - $prev->{cf_used} : 0
+		 , $growth // ''
+		 , $days ? int($days) : ''
 		), "\n";
       $prev = $log;
     }
