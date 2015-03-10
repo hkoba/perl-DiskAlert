@@ -35,6 +35,9 @@ fs=(
 
     /
       min=1G
+
+    /mnt/backup
+	min=5G
 )
 
 # min は, 残り容量の最小値.
