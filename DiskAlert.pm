@@ -1,4 +1,5 @@
 #!/usr/bin/perl -w
+# -*- coding: utf-8 -*-
 package DiskAlert;
 sub MY () {__PACKAGE__}
 use strict;

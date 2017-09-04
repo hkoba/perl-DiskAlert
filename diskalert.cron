@@ -1,5 +1,5 @@
 #!/bin/zsh
-
+# -*- coding: utf-8 -*-
 set -e
 
 db=/var/log/httpd/dflog.db
